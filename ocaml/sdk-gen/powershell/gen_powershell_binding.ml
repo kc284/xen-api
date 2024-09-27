@@ -102,6 +102,7 @@ let rec main () =
 
   List.iter (fun x -> write_file x.filename x.content) cmdlets ;
 
+  filtered_classes |> List.iter gen_constructor ;
   filtered_classes |> List.iter gen_destructor
 
 (****************)
@@ -175,11 +176,6 @@ and gen_cmdlets obj =
   let cmdlets =
     [
       {filename= sprintf "Get-Xen%s.cs" stem; content= gen_class obj classname}
-    ; {
-        filename= sprintf "New-Xen%s.cs" stem
-      ; content=
-          gen_constructor obj classname (List.filter is_constructor messages)
-      }
     ; {
         filename= sprintf "Remove-Xen%sProperty.cs" stem
       ; content= gen_remover obj classname (List.filter is_remover messages)
@@ -313,69 +309,39 @@ and print_methods_class classname has_uuid has_name =
 (*********************************)
 (* Print function for New-XenFoo *)
 (*********************************)
-and gen_constructor obj classname messages =
-  match messages with
+
+and gen_constructor obj =
+  let {name= classname; messages; _} = obj in
+  let constructors = List.filter is_constructor messages in
+  match constructors with
   | [] ->
-      ""
+      ()
   | [x] ->
-      print_header_constructor x classname
-      ^ print_params_constructor x obj classname
-      ^ print_methods_constructor x obj classname
+      let json =
+        `O
+          [
+            ("type", `String (qualified_class_name classname))
+          ; ("is_real_constructor", `Bool (is_real_constructor x))
+          ; ("wire_class_name", `String (exposed_class_name classname))
+          ; ("class_name", `String (ocaml_class_to_csharp_class classname))
+          ; ("async", `Bool x.msg_async)
+          ; ("field_params", `String (if is_real_constructor x then
+                        gen_fields (DU.fields_of_obj obj)
+                        else gen_constructor_params x.msg_params))
+          ; ("record_fields", `String (explode_record_fields x (DU.fields_of_obj obj)))
+          ; ("real_record_fields", `String (gen_record_fields (DU.fields_of_obj obj)))
+          ; ("hashtable_fields", `String (explode_hashtable_fields x (DU.fields_of_obj obj)))
+          ; ("fields", `String (gen_call_params classname x "New"))
+          ]
+      in
+      render_file
+        ( "New-XenObject.mustache"
+        , sprintf "New-Xen%s.cs" (ocaml_class_to_csharp_class classname)
+        )
+        json templdir destdir
   | _ ->
       assert false
 
-and print_header_constructor message classname =
-  sprintf
-    "%s\n\n\
-     using System;\n\
-     using System.Collections;\n\
-     using System.Collections.Generic;\n\
-     using System.Management.Automation;\n\
-     using XenAPI;\n\n\
-     namespace Citrix.XenServer.Commands\n\
-     {\n\
-    \    [Cmdlet(VerbsCommon.New, \"Xen%s\", DefaultParameterSetName = \
-     \"Hashtable\", SupportsShouldProcess = true)]\n\
-    \    [OutputType(typeof(%s))]%s\n\
-    \    [OutputType(typeof(void))]\n\
-    \    public class NewXen%sCommand : XenServerCmdlet\n\
-    \    {" Licence.bsd_two_clause
-    (ocaml_class_to_csharp_class classname)
-    (qualified_class_name classname)
-    ( if message.msg_async then
-        "\n    [OutputType(typeof(XenAPI.Task))]"
-      else
-        ""
-    )
-    (ocaml_class_to_csharp_class classname)
-
-and print_params_constructor message obj classname =
-  sprintf
-    "\n\
-    \        #region Cmdlet Parameters\n\n\
-    \        [Parameter]\n\
-    \        public SwitchParameter PassThru { get; set; }\n\n\
-    \        [Parameter(ParameterSetName = \"Hashtable\", Mandatory = true)]\n\
-    \        public Hashtable HashTable { get; set; }\n\n\
-    \        [Parameter(ParameterSetName = \"Record\", Mandatory = true)]\n\
-    \        public %s Record { get; set; }\n\
-     %s%s\n\
-    \        #endregion\n"
-    (qualified_class_name classname)
-    ( if is_real_constructor message then
-        gen_fields (DU.fields_of_obj obj)
-      else
-        gen_constructor_params message.msg_params
-    )
-    ( if message.msg_async then
-        "\n\
-        \        protected override bool GenerateAsyncParam\n\
-        \        {\n\
-        \            get { return true; }\n\
-        \        }\n"
-      else
-        ""
-    )
 
 and gen_constructor_params params =
   match params with
@@ -410,44 +376,6 @@ and gen_constructor_param paramName paramType paramsets =
       (print_parameter_sets paramsets)
       (obj_internal_type paramType)
       publicName
-
-and print_methods_constructor message obj classname =
-  sprintf
-    "\n\
-    \        #region Cmdlet Methods\n\n\
-    \        protected override void ProcessRecord()\n\
-    \        {\n\
-    \            GetSession();%s%s\n\
-    \            RunApiCall(()=>\n\
-    \            {%s\n\
-    \            });\n\n\
-    \            UpdateSessions();\n\
-    \        }\n\n\
-    \        #endregion\n\
-    \   }\n\
-     }\n"
-    ( if is_real_constructor message then
-        gen_make_record obj classname
-      else
-        gen_make_fields message obj
-    )
-    (gen_shouldprocess "New" message classname)
-    (gen_csharp_api_call message classname "New" "passthru")
-
-and gen_make_record obj classname =
-  sprintf
-    "\n\
-    \            if (Record == null && HashTable == null)\n\
-    \            {\n\
-    \                Record = new %s();%s\n\
-    \            }\n\
-    \            else if (Record == null)\n\
-    \            {\n\
-    \                Record = new %s(HashTable);\n\
-    \            }\n"
-    (qualified_class_name classname)
-    (gen_record_fields (DU.fields_of_obj obj))
-    (qualified_class_name classname)
 
 and gen_record_fields fields =
   match fields with
@@ -490,30 +418,17 @@ and gen_record_field field =
   in
   chk ^ assignment
 
-and gen_make_fields message obj =
-  sprintf
-    "\n\
-    \            if (Record != null)\n\
-    \            {%s\n\
-    \            }\n\
-    \            else if (HashTable != null)\n\
-    \            {%s\n\
-    \            }"
-    (explode_record_fields message (DU.fields_of_obj obj))
-    (explode_hashtable_fields message (DU.fields_of_obj obj))
-
 and explode_record_fields message fields =
   let print_map tl hd =
     sprintf
-      "\n\
-      \                %s = \
-       CommonCmdletFunctions.ConvertDictionaryToHashtable(Record.%s);%s"
+      "                %s = \
+       CommonCmdletFunctions.ConvertDictionaryToHashtable(Record.%s);\n%s"
       (ocaml_class_to_csharp_property (full_name hd))
       (full_name hd)
       (explode_record_fields message tl)
   in
   let print_record tl hd =
-    sprintf "\n                %s = Record.%s;%s"
+    sprintf "                %s = Record.%s;\n%s"
       (ocaml_class_to_csharp_property (full_name hd))
       (full_name hd)
       (explode_record_fields message tl)
@@ -539,7 +454,7 @@ and explode_hashtable_fields message fields =
   | hd :: tl ->
       if List.exists (fun x -> full_name hd = x.param_name) message.msg_params
       then
-        sprintf "\n                %s = %s;%s"
+        sprintf "                %s = %s;\n%s"
           (ocaml_class_to_csharp_property (full_name hd))
           (convert_from_hashtable (full_name hd) hd.ty)
           (explode_hashtable_fields message tl)
@@ -1218,13 +1133,7 @@ and print_async_param asyncMessages =
   | _ ->
       sprintf
         "\n\
-        \        protected override bool GenerateAsyncParam\n\
-        \        {\n\
-        \            get\n\
-        \            {\n\
-        \                return %s;\n\
-        \            }\n\
-        \        }\n"
+        \        protected override bool GenerateAsyncParam => %s;\n"
         (condition asyncMessages)
 
 and condition messages =
@@ -1234,7 +1143,7 @@ and condition messages =
   | [x] ->
       sprintf "%sIsSpecified" (lower_and_underscore_first x)
   | hd :: tl ->
-      sprintf "%sIsSpecified\n                       ^ %s"
+      sprintf "%sIsSpecified\n                                                      ^ %s"
         (lower_and_underscore_first hd)
         (condition tl)
 

@@ -1,0 +1,144 @@
+/*
+ * Copyright (c) Cloud Software Group, Inc.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ *   1) Redistributions of source code must retain the above copyright
+ *      notice, this list of conditions and the following disclaimer.
+ *
+ *   2) Redistributions in binary form must reproduce the above
+ *      copyright notice, this list of conditions and the following
+ *      disclaimer in the documentation and/or other materials
+ *      provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Management.Automation;
+using XenAPI;
+
+namespace Citrix.XenServer.Commands
+{
+    [Cmdlet(VerbsCommon.New, "Xen{{class_name}}", DefaultParameterSetName = "Hashtable", SupportsShouldProcess = true)]
+    [OutputType(typeof({{type}}))]
+{{#async}}
+    [OutputType(typeof(XenAPI.Task))]
+{{/async}}
+    [OutputType(typeof(void))]
+    public class NewXen{{class_name}}Command : XenServerCmdlet
+    {
+        #region Cmdlet Parameters
+
+        [Parameter]
+        public SwitchParameter PassThru { get; set; }
+
+        [Parameter(ParameterSetName = "Hashtable", Mandatory = true)]
+        public Hashtable HashTable { get; set; }
+
+        [Parameter(ParameterSetName = "Record", Mandatory = true)]
+        public {{type}} Record { get; set; }
+{{{field_params}}}
+{{#async}}
+
+        protected override bool GenerateAsyncParam => true;
+
+{{/async}}
+        #endregion
+
+        #region Cmdlet Methods
+
+        protected override void ProcessRecord()
+        {
+            GetSession();
+
+{{#is_real_constructor}}
+            if (Record == null && HashTable == null)
+            {
+                Record = new {{type}}();
+{{{real_record_fields}}}
+            }
+            else if (Record == null)
+            {
+                Record = new {{type}}(HashTable);
+            }
+{{/is_real_constructor}}
+{{^is_real_constructor}}
+            if (Record != null)
+            {
+{{{record_fields}}}
+            }
+            else if (HashTable != null)
+            {
+{{{hashtable_fields}}}
+            }
+{{/is_real_constructor}}
+
+            if (!ShouldProcess(session.Url, "{{wire_class_name}}.create"))
+                return;
+
+            RunApiCall(()=>
+            {
+{{#async}}
+                var context = _context as XenServerCmdletDynamicParameters;
+
+                if (context != null && context.Async)
+                {
+                    taskRef = {{type}}.async_create({{{fields}}});
+
+                    if (PassThru)
+                    {
+                        XenAPI.Task taskObj = null;
+                        if (taskRef != "OpaqueRef:NULL")
+                        {
+                            taskObj = XenAPI.Task.get_record(session, taskRef.opaque_ref);
+                            taskObj.opaque_ref = taskRef.opaque_ref;
+                        }
+
+                        WriteObject(taskObj, true);
+                    }
+                }
+                else
+                {
+{{/async}}
+                    string objRef = {{type}}.create({{{fields}}});
+
+                    if (PassThru)
+                    {
+                        {{type}} obj = null;
+
+                        if (objRef != "OpaqueRef:NULL")
+                        {
+                            obj = {{type}}.get_record(session, objRef);
+                            obj.opaque_ref = objRef;
+                        }
+
+                        WriteObject(obj, true);
+                    }
+{{#async}}
+                }
+{{/async}}
+            });
+
+            UpdateSessions();
+        }
+
+        #endregion
+    }
+}
