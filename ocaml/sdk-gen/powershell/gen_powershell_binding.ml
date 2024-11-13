@@ -103,7 +103,8 @@ let rec main () =
   List.iter (fun x -> write_file x.filename x.content) cmdlets ;
 
   filtered_classes |> List.iter gen_constructor ;
-  filtered_classes |> List.iter gen_destructor
+  filtered_classes |> List.iter gen_destructor ;
+  filtered_classes |> List.iter gen_getter
 
 (****************)
 (* Http actions *)
@@ -187,10 +188,6 @@ and gen_cmdlets obj =
     ; {
         filename= sprintf "Set-Xen%s.cs" stem
       ; content= gen_setter obj classname (List.filter is_setter messages)
-      }
-    ; {
-        filename= sprintf "Get-Xen%sProperty.cs" stem
-      ; content= gen_getter obj classname (List.filter is_getter messages)
       }
     ; {
         filename= sprintf "Invoke-Xen%s.cs" stem
@@ -325,12 +322,23 @@ and gen_constructor obj =
           ; ("wire_class_name", `String (exposed_class_name classname))
           ; ("class_name", `String (ocaml_class_to_csharp_class classname))
           ; ("async", `Bool x.msg_async)
-          ; ("field_params", `String (if is_real_constructor x then
-                        gen_fields (DU.fields_of_obj obj)
-                        else gen_constructor_params x.msg_params))
-          ; ("record_fields", `String (explode_record_fields x (DU.fields_of_obj obj)))
-          ; ("real_record_fields", `String (gen_record_fields (DU.fields_of_obj obj)))
-          ; ("hashtable_fields", `String (explode_hashtable_fields x (DU.fields_of_obj obj)))
+          ; ( "field_params"
+            , `String
+                ( if is_real_constructor x then
+                    gen_fields (DU.fields_of_obj obj)
+                  else
+                    gen_constructor_params x.msg_params
+                )
+            )
+          ; ( "record_fields"
+            , `String (explode_record_fields x (DU.fields_of_obj obj))
+            )
+          ; ( "real_record_fields"
+            , `String (gen_record_fields (DU.fields_of_obj obj))
+            )
+          ; ( "hashtable_fields"
+            , `String (explode_hashtable_fields x (DU.fields_of_obj obj))
+            )
           ; ("fields", `String (gen_call_params classname x "New"))
           ]
       in
@@ -341,7 +349,6 @@ and gen_constructor obj =
         json templdir destdir
   | _ ->
       assert false
-
 
 and gen_constructor_params params =
   match params with
@@ -422,7 +429,8 @@ and explode_record_fields message fields =
   let print_map tl hd =
     sprintf
       "                %s = \
-       CommonCmdletFunctions.ConvertDictionaryToHashtable(Record.%s);\n%s"
+       CommonCmdletFunctions.ConvertDictionaryToHashtable(Record.%s);\n\
+       %s"
       (ocaml_class_to_csharp_property (full_name hd))
       (full_name hd)
       (explode_record_fields message tl)
@@ -806,6 +814,67 @@ and gen_invoker obj classname messages =
 (**********************************************)
 (* Print function for Get-XenFooProperty -Bar *)
 (**********************************************)
+
+and gen_getter obj =
+  let {name= classname; messages; _} = obj in
+  let getters = List.filter is_getter messages in
+  match getters with
+  | [] ->
+      ()
+  | _ ->
+      let cut_message_name x = cut_msg_name (pascal_case x.msg_name) "Get" in
+      let json =
+        `O
+          [
+            ("class_name", `String (ocaml_class_to_csharp_class classname))
+          ; ( "class_name_local_var"
+            , `String (ocaml_class_to_csharp_local_var classname)
+            )
+          ; ("has_uuid", `Bool (has_uuid obj))
+          ; ( "properties"
+            , `A
+                (List.map
+                   (fun x ->
+                     `O
+                       [
+                         ("property", `String (cut_message_name x))
+                       ; ("property_type", `String (exposed_type_opt x.msg_result))
+                       ; ("message", `String x.msg_name)
+                       ; ( "property_params"
+                         , `A
+                             (List.map
+                                (fun y ->
+                                  `O
+                                    [
+                                      ("param_name", `String y.param_name)
+                                    ; ( "param_type"
+                                      , `String (obj_internal_type y.param_type)
+                                      )
+                                    ]
+                                )
+                                x.msg_params
+                             )
+                         )
+                       ]
+                   )
+                   getters
+                )
+            )
+          ]
+      in
+      render_file
+        ( "Get-XenObjectProperty.mustache"
+        , sprintf "Get-Xen%sProperty.cs" (ocaml_class_to_csharp_class classname)
+        )
+        json templdir destdir
+
+and exposed_type_opt = function
+  | Some (typ, _) ->
+      exposed_type typ
+  | None ->
+      "void"
+        
+(**
 and gen_getter obj classname messages =
   match messages with
   | [] ->
@@ -815,58 +884,40 @@ and gen_getter obj classname messages =
         List.filter (is_message_with_dynamic_params classname) messages
       in
       sprintf
-        "%s\n\n\
-         using System;\n\
-         using System.Collections;\n\
-         using System.Collections.Generic;\n\
-         using System.Management.Automation;\n\
-         using XenAPI;\n\n\
+        "
          namespace Citrix.XenServer.Commands\n\
          {\n\
-        \    [Cmdlet(VerbsCommon.Get, \"Xen%sProperty\", SupportsShouldProcess \
+        \    [Cmdlet(VerbsCommon.Get, \"Xen%sProperty\", SupportsShouldProcess \   (ocaml_class_to_csharp_class classname)
          = false)]\n\
-        \    public class GetXen%sProperty : XenServerCmdlet\n\
+        \    public class GetXen%sProperty : XenServerCmdlet\n\             (ocaml_class_to_csharp_class classname)
         \    {\n\
         \        #region Cmdlet Parameters\n\
-         %s\n\
+         %s\n\                                                          (print_xenobject_params obj classname true true false)
         \        [Parameter(Mandatory = true)]\n\
-        \        public Xen%sProperty XenProperty { get; set; }\n\n\
+        \        public Xen%sProperty XenProperty { get; set; }\n\n\   (ocaml_class_to_csharp_class classname)
         \        #endregion\n\
-         %s\n\
+         %s\n\                                                          (print_dynamic_generator classname "Property" "Get" messagesWithParams)
         \        #region Cmdlet Methods\n\n\
         \        protected override void ProcessRecord()\n\
         \        {\n\
         \            GetSession();\n\n\
-        \            string %s = Parse%s();\n\n\
+        \            string %s = Parse%s();\n\n\            (ocaml_class_to_csharp_local_var classname)  (ocaml_class_to_csharp_property classname)
         \            switch (XenProperty)\n\
-        \            {%s\n\
+        \            {%s\n\                                 (print_cmdlet_methods_dynamic classname messages "Property" "Get")
         \            }\n\n\
         \            UpdateSessions();\n\
         \        }\n\n\
         \        #endregion\n\n\
         \        #region Private Methods\n\
-         %s%s\n\
+         %s%s\n\                  (print_parse_xenobject_private_method obj classname false) (print_process_record_private_methods classname messages "Get" "pipe")
         \        #endregion\n\
         \    }\n\n\
-        \    public enum Xen%sProperty\n\
-        \    {%s\n\
+        \    public enum Xen%sProperty\n\                  (ocaml_class_to_csharp_class classname)
+        \    {%s\n\                                        (print_messages_as_enum "Get" messages)
         \    }\n\
-         %s\n\
+         %s\n\                                            (print_dynamic_params classname "Property" "Get" messagesWithParams)
          }\n"
-        Licence.bsd_two_clause
-        (ocaml_class_to_csharp_class classname)
-        (ocaml_class_to_csharp_class classname)
-        (print_xenobject_params obj classname true true false)
-        (ocaml_class_to_csharp_class classname)
-        (print_dynamic_generator classname "Property" "Get" messagesWithParams)
-        (ocaml_class_to_csharp_local_var classname)
-        (ocaml_class_to_csharp_property classname)
-        (print_cmdlet_methods_dynamic classname messages "Property" "Get")
-        (print_parse_xenobject_private_method obj classname false)
-        (print_process_record_private_methods classname messages "Get" "pipe")
-        (ocaml_class_to_csharp_class classname)
-        (print_messages_as_enum "Get" messages)
-        (print_dynamic_params classname "Property" "Get" messagesWithParams)
+        **)
 
 and print_cmdlet_methods_dynamic classname messages enum commonVerb =
   let cut_message_name x = cut_msg_name (pascal_case x.msg_name) commonVerb in
@@ -1131,9 +1182,7 @@ and print_async_param asyncMessages =
   | [] ->
       ""
   | _ ->
-      sprintf
-        "\n\
-        \        protected override bool GenerateAsyncParam => %s;\n"
+      sprintf "\n        protected override bool GenerateAsyncParam => %s;\n"
         (condition asyncMessages)
 
 and condition messages =
@@ -1143,7 +1192,9 @@ and condition messages =
   | [x] ->
       sprintf "%sIsSpecified" (lower_and_underscore_first x)
   | hd :: tl ->
-      sprintf "%sIsSpecified\n                                                      ^ %s"
+      sprintf
+        "%sIsSpecified\n\
+        \                                                      ^ %s"
         (lower_and_underscore_first hd)
         (condition tl)
 
