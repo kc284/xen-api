@@ -34,7 +34,7 @@ To network with other developers using XenServer visit
 
 ## Prerequisites
 
-This library requires .NET Standard 2.0.
+This library targets .NET Framework 4.5, .NET Standard 2.0, and .NET 8.0.
 
 ## Dependencies
 
