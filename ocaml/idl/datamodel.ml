@@ -110,13 +110,13 @@ module Session = struct
         [
           ( Published
           , rel_miami
-          , "Authenticate locally against a slave in emergency mode. Note the \
+          , "Authenticate locally against a supporter host in emergency mode. Note the \
              resulting sessions are only good for use on this host."
           )
         ]
       ~name:"slave_local_login"
       ~doc:
-        "Authenticate locally against a slave in emergency mode. Note the \
+        "Authenticate locally against a supporter host in emergency mode. Note the \
          resulting sessions are only good for use on this host."
       ~result:(Ref _session, "ID of newly created session")
       ~params:[(SecretString, "psecret", "Pool secret")]
@@ -129,13 +129,13 @@ module Session = struct
         [
           ( Published
           , rel_miami
-          , "Authenticate locally against a slave in emergency mode. Note the \
+          , "Authenticate locally against a supporter host in emergency mode. Note the \
              resulting sessions are only good for use on this host."
           )
         ]
       ~name:"slave_local_login_with_password"
       ~doc:
-        "Authenticate locally against a slave in emergency mode. Note the \
+        "Authenticate locally against a supporter host in emergency mode. Note the \
          resulting sessions are only good for use on this host."
       ~result:(Ref _session, "ID of newly created session")
       ~params:

@@ -200,11 +200,11 @@ let slave_reset_master =
       [
         ( Published
         , rel_rio
-        , "Instruct a slave already in a pool that the master has changed"
+        , "Instruct a supporter host already in a pool that the master has changed"
         )
       ]
     ~params:[(String, "master_address", "The hostname of the master")]
-    ~doc:"Instruct a slave already in a pool that the master has changed"
+    ~doc:"Instruct a supporter host already in a pool that the master has changed"
     ~allowed_roles:_R_POOL_OP ()
 
 let transition_to_master =
@@ -214,11 +214,11 @@ let transition_to_master =
       [
         ( Published
         , rel_rio
-        , "Instruct host that's currently a slave to transition to being master"
+        , "Instruct host that is currently a supporter to transition to being coordinator"
         )
       ]
     ~params:[]
-    ~doc:"Instruct host that's currently a slave to transition to being master"
+    ~doc:"Instruct host that's currently a supporter to transition to being coordinator"
     ~allowed_roles:_R_POOL_OP ()
 
 let recover_slaves =
@@ -227,18 +227,18 @@ let recover_slaves =
       [
         ( Published
         , rel_rio
-        , "Instruct a pool master, M, to try and contact its slaves and, if \
-           slaves are in emergency mode, reset their master address to M."
+        , "Instruct a pool coordinator M to try and contact its supporters and, if \
+           they are in emergency mode, reset their coordinator address to M."
         )
       ]
     ~params:[]
     ~result:
       ( Set (Ref _host)
-      , "list of hosts whose master address were successfully reset"
+      , "list of hosts whose coordinator address was successfully reset"
       )
     ~doc:
-      "Instruct a pool master, M, to try and contact its slaves and, if slaves \
-       are in emergency mode, reset their master address to M."
+      "Instruct a pool coordinator M to try and contact its supporters and, if they \
+       are in emergency mode, reset their coordinator address to M."
     ~allowed_roles:_R_POOL_OP ()
 
 let eject =
@@ -247,11 +247,11 @@ let eject =
       [
         ( Published
         , rel_rio
-        , "Instruct a pool master to eject a host from the pool"
+        , "Instruct a pool coordinator to eject a host from the pool"
         )
       ]
     ~params:[(Ref _host, "host", "The host to eject")]
-    ~doc:"Instruct a pool master to eject a host from the pool"
+    ~doc:"Instruct a pool coordinator to eject a host from the pool"
     ~allowed_roles:_R_POOL_OP ()
 
 let initial_auth =
@@ -361,8 +361,8 @@ let ping_slave =
     ~doc:"Internal use only"
     ~result:
       ( Bool
-      , "returns false if pinged host is master [indicating critical error \
-         condition]; true if pinged host is slave"
+      , "returns false if the pinged host is a coordinator [indicating critical error \
+         condition]; true if the pinged host is a supporter"
       )
     ~hide_from_docs:true ~allowed_roles:_R_POOL_ADMIN ()
 
@@ -668,7 +668,7 @@ let detect_nonhomogeneous_external_auth =
         ( Published
         , rel_george
         , "This call asynchronously detects if the external authentication \
-           configuration in any slave is different from that in the master and \
+           configuration in any supporter host is different from that in the master and \
            raises appropriate alerts"
         )
       ]
@@ -682,7 +682,7 @@ let detect_nonhomogeneous_external_auth =
       ]
     ~doc:
       "This call asynchronously detects if the external authentication \
-       configuration in any slave is different from that in the master and \
+       configuration in any supporter host is different from that in the master and \
        raises appropriate alerts"
     ~allowed_roles:_R_POOL_OP ()
 

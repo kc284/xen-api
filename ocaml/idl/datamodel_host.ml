@@ -1608,9 +1608,9 @@ let tickle_heartbeat =
         , "Anything else we want to let the master know"
         )
       ]
-    ~result:(Map (String, String), "Anything the master wants to tell the slave")
+    ~result:(Map (String, String), "Anything the coordinator wants to tell the supporter")
     ~doc:
-      "Needs to be called every 30 seconds for the master to believe the host \
+      "Needs to be called every 30 seconds for the coordinator to believe the host \
        is alive"
     ~pool_internal:true ~hide_from_docs:true ~allowed_roles:_R_LOCAL_ROOT_ONLY
     ()
