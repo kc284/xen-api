@@ -27,7 +27,6 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -35,6 +34,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using Newtonsoft.Json;
+
 
 namespace XenAPI
 {
@@ -133,7 +133,7 @@ namespace XenAPI
 {{#deprecated}}
         [Deprecated("Deprecated since {{.}}")]
 {{/deprecated}}
-        public static {{{result}}} {{method}}(Session session{{#params}}, {{{param_type}}} _{{param_name}}{{/params}})
+        public static {{{result}}} {{method}}(Session session{{#params}}, {{{param_type}}} _{{param_name}}{{{param_default}}}{{/params}})
         {
             {{#has_return}}return {{/has_return}}session.JsonRpcClient.{{client_method}}(session.opaque_ref{{#params}}, _{{param_name}}{{/params}});
         }
@@ -155,7 +155,7 @@ namespace XenAPI
 {{#deprecated}}
         [Deprecated("Deprecated since {{.}}")]
 {{/deprecated}}
-        public static XenRef<Task> async_{{method}}(Session session{{#params}}, {{{param_type}}} _{{param_name}}{{/params}})
+        public static XenRef<Task> async_{{method}}(Session session{{#params}}, {{{param_type}}} _{{param_name}}{{{param_default}}}{{/params}})
         {
             return session.JsonRpcClient.async_{{client_method}}(session.opaque_ref{{#params}}, _{{param_name}}{{/params}});
         }

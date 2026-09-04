@@ -261,7 +261,9 @@ and gen_class cls =
                  ; ("field_type", `String (exposed_type f.ty))
                  ; ("field_doc", `String (escape_xml f.field_description))
                  ; ("field_rel", `String (get_published_info_field f cls))
-                 ; ("field_default", `String (get_default_value_opt f))
+                 ; ( "field_default"
+                   , `String (get_default_value_opt f.ty f.default_value true)
+                   )
                  ; ( "field_marshalling"
                    , `String (convert_from_hashtable (full_name f) f.ty)
                    )
@@ -325,6 +327,12 @@ and gen_class cls =
                               ; ("param_rel", `String p_info)
                               ; ( "param_type"
                                 , `String (internal_type p.param_type)
+                                )
+                              ; ( "param_default"
+                                , `String
+                                    (get_default_value_opt p.param_type
+                                       p.param_default false
+                                    )
                                 )
                               ]
                           )
@@ -486,49 +494,6 @@ and exposed_call_params message classname params =
       refParam :: exposedParams
   in
   String.concat ", " ("session.opaque_ref" :: exposedParams)
-
-and gen_exposed_field out_chan cls content =
-  match content with
-  | Field fr ->
-      let print format = fprintf out_chan format in
-      let full_name_fr = full_name fr in
-      let comp = sprintf "!Helper.AreEqual(value, _%s)" full_name_fr in
-      let publishInfo = get_published_info_field fr cls in
-
-      print
-        "\n\
-        \        /// <summary>\n\
-        \        /// %s%s\n\
-        \        /// </summary>%s\n\
-        \        public virtual %s %s\n\
-        \        {\n\
-        \            get { return _%s; }"
-        (escape_xml fr.field_description)
-        ( if publishInfo = "" then
-            ""
-          else
-            "\n        /// " ^ publishInfo
-        )
-        (json_serialization_attr fr)
-        (exposed_type fr.ty) full_name_fr full_name_fr ;
-
-      print
-        "\n\
-        \            set\n\
-        \            {\n\
-        \                if (%s)\n\
-        \                {\n\
-        \                    _%s = value;\n\
-        \                    NotifyPropertyChanged(\"%s\");\n\
-        \                }\n\
-        \            }\n\
-        \        }"
-        comp full_name_fr full_name_fr ;
-
-      print "\n        private %s _%s%s;\n" (exposed_type fr.ty) full_name_fr
-        (get_default_value_opt fr)
-  | Namespace (_, c) ->
-      List.iter (gen_exposed_field out_chan cls) c
 
 and gen_proxy protocol =
   let all_methods = classes |> List.concat_map gen_proxy_class_methods in
@@ -1070,7 +1035,7 @@ and json_serialization_attr fr =
   | _ ->
       ""
 
-and get_default_value_opt field =
+and get_default_value_opt ty value lang_default =
   let rec get_default_value = function
     | VString y ->
         ["\"" ^ y ^ "\""]
@@ -1105,11 +1070,14 @@ and get_default_value_opt field =
         else
           [sprintf "\"%s\"" y]
   in
-  match field.default_value with
+  match value with
   | Some y ->
-      get_default_value_per_type field.ty (get_default_value y)
+      get_default_value_per_type ty (get_default_value y)
   | None ->
-      get_default_value_per_type field.ty []
+      if lang_default then
+        get_default_value_per_type ty []
+      else
+        ""
 
 and get_default_value_per_type ty thing =
   match ty with
