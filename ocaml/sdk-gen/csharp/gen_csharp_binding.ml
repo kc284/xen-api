@@ -199,235 +199,144 @@ and gen_http_actions () =
 
 (* ------------------- category: classes *)
 and gen_class_file cls =
-  let m = exposed_class_name cls.name in
-  if not (List.mem m !api_members) then api_members := m :: !api_members ;
-  let out_chan =
-    open_out (Filename.concat destdir (exposed_class_name cls.name) ^ ".cs")
-  in
-  Fun.protect
-    (fun () -> gen_class out_chan cls)
-    ~finally:(fun () -> close_out out_chan)
+  let name = exposed_class_name cls.name in
+  if not (List.mem name !api_members) then api_members := name :: !api_members ;
+  render_file ("Class.mustache", name ^ ".cs") (gen_class cls) templdir destdir
 
-and gen_class out_chan cls =
-  let print format = fprintf out_chan format in
-  let exposed_class_name = exposed_class_name cls.name in
+and gen_class cls =
+  let classname = exposed_class_name cls.name in
   let messages =
     List.filter
       (fun msg -> String.compare msg.msg_name "get_all_records_where" <> 0)
       cls.messages
   in
-  let contents = cls.contents in
-  let publishedInfo = get_published_info_class cls in
-
-  print
-    "%s\n\n\
-     using System;\n\
-     using System.Collections;\n\
-     using System.Collections.Generic;\n\
-     using System.ComponentModel;\n\
-     using System.Globalization;\n\
-     using System.Linq;\n\
-     using Newtonsoft.Json;\n\n\n\
-     namespace XenAPI\n\
-     {\n\
-    \    /// <summary>\n\
-    \    /// %s%s\n\
-    \    /// </summary>\n\
-    \    public partial class %s : XenObject<%s>\n\
-    \    {"
-    Licence.bsd_two_clause
-    (escape_xml cls.description)
-    ( if publishedInfo = "" then
-        ""
-      else
-        "\n    /// " ^ publishedInfo
-    )
-    exposed_class_name exposed_class_name ;
-
-  print
-    "\n\
-    \        #region Constructors\n\n\
-    \        public %s()\n\
-    \        {\n\
-    \        }\n"
-    exposed_class_name ;
-
-  let print_internal_ctor = function
-    | [] ->
-        ()
-    | cnt ->
-        print "\n        public %s(%s)\n        {\n            %s\n        }\n"
-          exposed_class_name
-          (String.concat ",\n            "
-             (List.rev (get_constructor_params cnt))
-          )
-          (String.concat "\n            " (List.rev (get_constructor_body cnt)))
-  in
-  print_internal_ctor contents ;
-
-  print
-    "\n\
-    \        /// <summary>\n\
-    \        /// Creates a new %s from a Hashtable.\n\
-    \        /// Note that the fields not contained in the Hashtable\n\
-    \        /// will be created with their default values.\n\
-    \        /// </summary>\n\
-    \        /// <param name=\"table\"></param>\n\
-    \        public %s(Hashtable table)\n\
-    \            : this()\n\
-    \        {\n\
-    \            UpdateFrom(table);\n\
-    \        }\n"
-    exposed_class_name exposed_class_name ;
-
-  print "\n        #endregion\n\n" ;
-
-  print
-    "        /// <summary>\n\
-    \        /// Updates each field of this instance with the value of\n\
-    \        /// the corresponding field of a given %s.\n\
-    \        /// </summary>\n\
-    \        public override void UpdateFrom(%s record)\n\
-    \        {\n"
-    exposed_class_name exposed_class_name ;
-
-  List.iter (gen_updatefrom_line out_chan) contents ;
-
-  print "        }\n\n" ;
-
-  print
-    "        /// <summary>\n\
-    \        /// Given a Hashtable with field-value pairs, it updates the \
-     fields of this %s\n\
-    \        /// with the values listed in the Hashtable. Note that only the \
-     fields contained\n\
-    \        /// in the Hashtable will be updated and the rest will remain the \
-     same.\n\
-    \        /// </summary>\n\
-    \        /// <param name=\"table\"></param>\n\
-    \        public void UpdateFrom(Hashtable table)\n\
-    \        {\n"
-    exposed_class_name ;
-
-  List.iter (gen_hashtable_constructor_line out_chan) contents ;
-
-  print "        }\n\n" ;
-
-  let is_current_ops = function
-    | Field f ->
-        full_name f = "current_operations"
-    | _ ->
-        false
-  in
-  let current_ops, other_contents = List.partition is_current_ops contents in
-  let check_refs =
-    "if (ReferenceEquals(null, other))\n\
-    \                return false;\n\
-    \            if (ReferenceEquals(this, other))\n\
-    \                return true;"
-  in
-  ( match current_ops with
-  | [] ->
-      print
-        "        public bool DeepEquals(%s other)\n\
-        \        {\n\
-        \            %s\n\n\
-        \            return "
-        exposed_class_name check_refs
-  | _ ->
-      print
-        "        public bool DeepEquals(%s other, bool ignoreCurrentOperations)\n\
-        \        {\n\
-        \            %s\n\n\
-        \            if (!ignoreCurrentOperations && \
-         !Helper.AreEqual2(current_operations, other.current_operations))\n\
-        \                return false;\n\n\
-        \            return "
-        exposed_class_name check_refs
-  ) ;
-
-  ( match other_contents with
-  | [] ->
-      print "false"
-  | _ ->
-      print "%s"
-        (String.concat " &&\n                "
-           (List.map gen_equals_condition other_contents)
+  let rec flatten_contents contents =
+    List.fold_left
+      (fun l -> function
+        | Field f ->
+            f :: l
+        | Namespace (_name, contents) ->
+            flatten_contents contents @ l
         )
-  ) ;
-
-  print ";\n        }\n\n" ;
-
-  let gen_exposed_method_overloads cls message =
-    let generator x = gen_exposed_method cls message x in
-    gen_overloads generator message
+      [] contents
   in
-  let all_methods =
-    messages |> List.concat_map (gen_exposed_method_overloads cls)
+  let fields =
+    cls.contents
+    |> flatten_contents
+    |> List.filter (fun f -> not f.internal_only)
+    |> List.rev
   in
-  List.iter (print "%s") all_methods ;
-  List.iter (gen_exposed_field out_chan cls) contents ;
-  print "    }\n}\n"
-
-and get_constructor_params content = get_constructor_params' content []
-
-and get_constructor_params' content elements =
-  match content with
-  | [] ->
-      elements
-  | Field fr :: others ->
-      get_constructor_params' others
-        (sprintf "%s %s" (exposed_type fr.ty) (full_name fr) :: elements)
-  | Namespace (_, c) :: others ->
-      get_constructor_params' (c @ others) elements
-
-and get_constructor_body content = get_constructor_body' content []
-
-and get_constructor_body' content elements =
-  match content with
-  | [] ->
-      elements
-  | Field fr :: others ->
-      get_constructor_body' others
-        (sprintf "this.%s = %s;" (full_name fr) (full_name fr) :: elements)
-  | Namespace (_, c) :: others ->
-      get_constructor_body' (c @ others) elements
-
-and gen_hashtable_constructor_line out_chan content =
-  let print format = fprintf out_chan format in
-
-  match content with
-  | Field fr ->
-      print
-        "            if (table.ContainsKey(\"%s\"))\n                %s = %s;\n"
-        (full_name fr) (full_name fr)
-        (convert_from_hashtable (full_name fr) fr.ty)
-  | Namespace (_, c) ->
-      List.iter (gen_hashtable_constructor_line out_chan) c
-
-and gen_equals_condition content =
-  match content with
-  | Field fr ->
-      sprintf "Helper.AreEqual2(_%s, other._%s)" (full_name fr) (full_name fr)
-  | Namespace (_, c) ->
-      String.concat " &&\n                " (List.map gen_equals_condition c)
-
-and gen_updatefrom_line out_chan content =
-  let print format = fprintf out_chan format in
-
-  match content with
-  | Field fr ->
-      print "            %s = %s;\n" (full_name fr) ("record." ^ full_name fr)
-  | Namespace (_, c) ->
-      List.iter (gen_updatefrom_line out_chan) c
-
-and gen_overloads generator message =
-  match message.msg_params with
-  | [] ->
-      [generator []]
-  | _ ->
-      let paramGroups = gen_param_groups message message.msg_params in
-      List.map generator paramGroups
+  let fields_no_ops =
+    fields |> List.filter (fun f -> full_name f <> "current_operations")
+  in
+  `O
+    [
+      ("class", `String classname)
+    ; ("class_doc", `String (escape_xml cls.description))
+    ; ("class_rel", `String (get_published_info_class cls))
+    ; ( "has_current_ops"
+      , `Bool (List.length fields <> List.length fields_no_ops)
+      )
+    ; ( "fields_no_ops"
+      , `A
+          (List.map
+             (fun f ->
+               `O
+                 [
+                   ("field", `String (full_name f))
+                 ; ("is_last", `Bool (is_last f fields_no_ops))
+                 ]
+             )
+             fields_no_ops
+          )
+      )
+    ; ( "all_fields"
+      , `A
+          (List.map
+             (fun f ->
+               `O
+                 [
+                   ("field", `String (full_name f))
+                 ; ("is_last", `Bool (is_last f fields))
+                 ; ("field_type", `String (exposed_type f.ty))
+                 ; ("field_doc", `String (escape_xml f.field_description))
+                 ; ("field_rel", `String (get_published_info_field f cls))
+                 ; ("field_default", `String (get_default_value_opt f))
+                 ; ( "field_marshalling"
+                   , `String (convert_from_hashtable (full_name f) f.ty)
+                   )
+                 ; ("json_attr", `String (json_serialization_attr f))
+                 ]
+             )
+             fields
+          )
+      )
+    ; ( "all_methods"
+      , `A
+          (List.map
+             (fun x ->
+               let deprecated = function
+                 | None ->
+                     ""
+                 | Some v ->
+                     get_release_branding v
+               in
+               let has_return = function
+                 | Some (_, _) ->
+                     true
+                 | None ->
+                     false
+               in
+               `O
+                 [
+                   ("method", `String x.msg_name)
+                 ; ("async", `Bool x.msg_async)
+                 ; ( "deprecated"
+                   , `String (deprecated x.msg_release.internal_deprecated_since)
+                   )
+                 ; ("client_method", `String (proxy_msg_name classname x))
+                 ; ("method_doc", `String x.msg_doc)
+                 ; ("method_rel", `String (get_published_info_message x cls))
+                 ; ("method_rbac", `String (get_minimum_allowed_role x))
+                 ; ("result", `String (exposed_type_opt x.msg_result))
+                 ; ("has_return", `Bool (has_return x.msg_result))
+                 ; ( "params"
+                   , `A
+                       (List.map
+                          (fun p ->
+                            let p_name =
+                              if String.lowercase_ascii p.param_name = "self"
+                              then
+                                String.lowercase_ascii classname
+                              else
+                                String.lowercase_ascii p.param_name
+                            in
+                            let p_info =
+                              if String.lowercase_ascii p.param_name = "self"
+                              then
+                                ""
+                              else
+                                get_published_info_param x p
+                            in
+                            `O
+                              [
+                                ("param_name", `String p_name)
+                              ; ("param_doc", `String (escape_xml p.param_doc))
+                              ; ("param_rel", `String p_info)
+                              ; ( "param_type"
+                                , `String (internal_type p.param_type)
+                                )
+                              ]
+                          )
+                          x.msg_params
+                       )
+                   )
+                 ]
+             )
+             messages
+          )
+      )
+    ]
 
 and gen_exposed_method cls msg curParams =
   let classname = cls.name in
@@ -629,6 +538,14 @@ and gen_proxy protocol =
       `O [("client_methods", `A (List.map json_method all_methods))]
   | _ ->
       raise Unknown_wire_protocol
+
+and gen_overloads generator message =
+  match message.msg_params with
+  | [] ->
+      [generator []]
+  | _ ->
+      let paramGroups = gen_param_groups message message.msg_params in
+      List.map generator paramGroups
 
 and gen_proxy_class_methods {name; messages; _} =
   let gen_message_overloads name message =
@@ -1119,36 +1036,34 @@ and json_return_opt thing = function
 and json_serialization_attr fr =
   match fr.ty with
   | DateTime ->
-      sprintf "\n        [JsonConverter(typeof(XenDateTimeConverter))]"
+      "[JsonConverter(typeof(XenDateTimeConverter))]"
   | Enum (name, _) ->
-      sprintf "\n        [JsonConverter(typeof(%sConverter))]" name
+      sprintf "[JsonConverter(typeof(%sConverter))]" name
   | Ref name ->
-      sprintf "\n        [JsonConverter(typeof(XenRefConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(XenRefConverter<%s>))]"
         (exposed_class_name name)
   | Set (Ref name) ->
-      sprintf "\n        [JsonConverter(typeof(XenRefListConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(XenRefListConverter<%s>))]"
         (exposed_class_name name)
   | Map (Ref u, Record _) ->
-      sprintf "\n        [JsonConverter(typeof(XenRefObjectMapConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(XenRefObjectMapConverter<%s>))]"
         (exposed_class_name u)
   | Map (Ref u, Ref v) ->
-      sprintf
-        "\n        [JsonConverter(typeof(XenRefXenRefMapConverter<%s, %s>))]"
+      sprintf "[JsonConverter(typeof(XenRefXenRefMapConverter<%s, %s>))]"
         (exposed_class_name u) (exposed_class_name v)
   | Map (Ref u, Int) ->
-      sprintf "\n        [JsonConverter(typeof(XenRefLongMapConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(XenRefLongMapConverter<%s>))]"
         (exposed_class_name u)
   | Map (Ref u, String) ->
-      sprintf "\n        [JsonConverter(typeof(XenRefStringMapConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(XenRefStringMapConverter<%s>))]"
         (exposed_class_name u)
   | Map (String, Ref v) ->
-      sprintf "\n        [JsonConverter(typeof(StringXenRefMapConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(StringXenRefMapConverter<%s>))]"
         (exposed_class_name v)
   | Map (String, String) ->
-      sprintf "\n        [JsonConverter(typeof(StringStringMapConverter))]"
+      "[JsonConverter(typeof(StringStringMapConverter))]"
   | Map (Ref u, Set String) ->
-      sprintf
-        "\n        [JsonConverter(typeof(XenRefStringSetMapConverter<%s>))]"
+      sprintf "[JsonConverter(typeof(XenRefStringSetMapConverter<%s>))]"
         (exposed_class_name u)
   | Map (Ref _, _) | Map (_, Ref _) ->
       failwith (sprintf "Need converter for %s" fr.field_name)

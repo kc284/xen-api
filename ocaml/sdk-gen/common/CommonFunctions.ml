@@ -55,6 +55,21 @@ let list_index_of x list =
   in
   try index_rec 0 list with Not_found -> -1
 
+let rec is_last x list =
+  match list with
+  | [] ->
+      false
+  | hd :: [] ->
+      if hd = x then
+        true
+      else
+        false
+  | hd :: tl ->
+      if hd = x then
+        false
+      else
+        is_last x tl
+
 let is_method_static message =
   match message.msg_params with
   | [] ->
