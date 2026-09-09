@@ -63,7 +63,6 @@ let classes_with_records =
   |> List.filter (fun x ->
       List.exists (fun y -> y.msg_name = "get_all_records") x.messages
   )
-  |> List.map (fun x -> x.name)
 
 let classes = objects_of_api api
 
@@ -71,21 +70,6 @@ let maps = ref TypeSet.empty
 
 let generated x =
   not (List.mem x.name ["blob"; "session"; "debug"; "event"; "vtpm"])
-
-let rec is_last x list =
-  match list with
-  | [] ->
-      false
-  | hd :: [] ->
-      if hd = x then
-        true
-      else
-        false
-  | hd :: tl ->
-      if hd = x then
-        false
-      else
-        is_last x tl
 
 let rec main () =
   let json =
@@ -103,7 +87,7 @@ let rec main () =
                      )
                    ]
                )
-               classes
+               classes_with_records
             )
         )
       ]
@@ -272,7 +256,8 @@ and write_file cmdletname content =
 (* Print function for Get-XenFoo *)
 (*********************************)
 and gen_class obj classname =
-  if List.mem classname classes_with_records then
+  let classnames = classes_with_records |> List.map (fun x -> x.name) in
+  if List.mem classname classnames then
     print_header_class classname
     ^ print_parameters_class obj classname
     ^ print_methods_class classname (has_uuid obj) (has_name obj)
