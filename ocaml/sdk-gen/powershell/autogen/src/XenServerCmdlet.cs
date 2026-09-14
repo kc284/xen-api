@@ -159,10 +159,7 @@ namespace Citrix.XenServer.Commands
 
         protected IXenServerDynamicParameter _context;
 
-        protected virtual bool GenerateAsyncParam
-        {
-            get { return false; }
-        }
+        protected virtual bool GenerateAsyncParam => false;
 
         public virtual object GetDynamicParameters()
         {
